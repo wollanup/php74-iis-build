@@ -1,0 +1,59 @@
+# Compile PHP 7.4.33 NTS x64 (vc15) pour IIS, avec le correctif officiel
+# CVE-2026-109618 / CVE-2026-109619 (commit 712e60f9 de la branche
+# php-src PHP-7.4-CVE-2026-109618-109619).
+#
+# A placer dans : .github/workflows/build-php74-nts.yml
+# Lancement : onglet Actions > "Build PHP 7.4.33 NTS x64 (sec)" > Run workflow
+# Resultat : artefact "artifacts-source-x64-nts" (zip PHP + debug/devel/test packs)
+
+name: Build PHP 7.4.33 NTS x64 (sec)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PHP_TAG: php-7.4.33
+  FIX_COMMIT: 712e60f9edfd03f0960fc4fc3c2c375f42b90aa2
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 180
+    steps:
+      - name: Recuperer les sources officielles 7.4.33
+        uses: actions/checkout@v5
+        with:
+          repository: php/php-src
+          ref: ${{ env.PHP_TAG }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Appliquer le correctif de securite officiel
+        shell: pwsh
+        run: |
+          git fetch --no-tags --depth 2 origin $env:FIX_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw "Impossible de recuperer le commit $env:FIX_COMMIT" }
+          git -c user.name=ci -c user.email=ci@localhost cherry-pick --no-commit $env:FIX_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw "Le correctif ne s'applique pas proprement" }
+          git diff --cached --stat
+
+      - name: Compiler (NTS, x64, vc15, PGO)
+        uses: php/php-windows-builder/php@v1
+        with:
+          arch: x64
+          ts: nts
+
+      - name: Verifier le binaire
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem artifacts -Filter 'php-7.4.33-nts-Win32-*-x64.zip' | Select-Object -First 1
+          if (-not $zip) { throw "Zip PHP introuvable dans artifacts" }
+          Get-FileHash $zip.FullName -Algorithm SHA256 | Format-List
+          $dest = Join-Path $env:RUNNER_TEMP 'phptest'
+          Expand-Archive $zip.FullName -DestinationPath $dest
+          & "$dest\php.exe" -v
+          & "$dest\php-cgi.exe" -v
+          if ($LASTEXITCODE -ne 0) { throw "php-cgi.exe ne demarre pas" }
