@@ -1,6 +1,9 @@
-# Compile PHP 7.4.33 NTS x64 (vc15) pour IIS, avec le correctif officiel
-# CVE-2026-109618 / CVE-2026-109619 (commit 712e60f9 de la branche
-# php-src PHP-7.4-CVE-2026-109618-109619).
+# Compile PHP 7.4.33 NTS x64 (vc15) pour IIS a partir de la branche
+# PHP-7.4-security-backports de remicollet/php-src-security : 7.4.33 + backports
+# des correctifs de securite des branches maintenues, dont :
+#   - CVE-2026-109618 / CVE-2026-109619 (PHP2Shell, 21/10/2026)
+#   - release de securite du 19/11/2026 (CVE-2026-129289, CVE-2026-115560,
+#     CVE-2026-126714, CVE-2026-129496, ...), voir NEWS
 #
 # A placer dans : .github/workflows/build-php74-nts.yml
 # Lancement : onglet Actions > "Build PHP 7.4.33 NTS x64 (sec)" > Run workflow
@@ -15,30 +18,28 @@ permissions:
   contents: read
 
 env:
-  PHP_TAG: php-7.4.33
-  FIX_COMMIT: 712e60f9edfd03f0960fc4fc3c2c375f42b90aa2
+  SRC_REPO: remicollet/php-src-security
+  # Tete de PHP-7.4-security-backports au 2026-11-20
+  SRC_REF: 9a0a020ff74083b9d30666c041b515f0ff8f4d3c
 
 jobs:
   build:
     runs-on: windows-2022
     timeout-minutes: 180
     steps:
-      - name: Recuperer les sources officielles 7.4.33
+      - name: Recuperer les sources 7.4.33 + backports de securite
         uses: actions/checkout@v5
         with:
-          repository: php/php-src
-          ref: ${{ env.PHP_TAG }}
+          repository: ${{ env.SRC_REPO }}
+          ref: ${{ env.SRC_REF }}
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Appliquer le correctif de securite officiel
+      - name: Afficher les correctifs inclus
         shell: pwsh
         run: |
-          git fetch --no-tags --depth 2 origin $env:FIX_COMMIT
-          if ($LASTEXITCODE -ne 0) { throw "Impossible de recuperer le commit $env:FIX_COMMIT" }
-          git -c user.name=ci -c user.email=ci@localhost cherry-pick --no-commit $env:FIX_COMMIT
-          if ($LASTEXITCODE -ne 0) { throw "Le correctif ne s'applique pas proprement" }
-          git diff --cached --stat
+          git log -1 --format='%H %cd %s'
+          Get-Content NEWS -TotalCount 60
 
       - name: Compiler (NTS, x64, vc15, PGO)
         uses: php/php-windows-builder/php@v1
@@ -57,3 +58,4 @@ jobs:
           & "$dest\php.exe" -v
           & "$dest\php-cgi.exe" -v
           if ($LASTEXITCODE -ne 0) { throw "php-cgi.exe ne demarre pas" }
+          & "$dest\php.exe" -r 'echo "session.upload_progress.enabled=", var_export(ini_get("session.upload_progress.enabled"), true), PHP_EOL;'
